@@ -82,6 +82,9 @@ uv sync
 # train BDH on a toy dataset
 uv run main.py --train
 
+# train the tokenizer from the [tokenizer] section in config.toml
+uv run main.py --train-tokenizer
+
 # download a 10-million-character Wikipedia dataset
 uv run main.py --download-wikipedia --target-characters 10m
 ```

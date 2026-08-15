@@ -12,3 +12,9 @@ INPUT_FILE_PATH = "input.txt"
 [output]
 MODEL_PATH = "models/"
 GRAPH_PATH = "analysis/"
+
+[tokenizer]
+INPUT_TEXT = "input.txt"
+OUTPUT_PATH = "tokenizers/tokenizer.json"
+VOCAB_SIZE = 32_000
+SPECIAL_TOKENS = ["<pad>", "<unk>", "<bos>", "<eos>"]
