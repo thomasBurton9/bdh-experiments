@@ -91,6 +91,9 @@ if __name__ == "__main__":
     fetch_data()
 
     model = bdh.BDH(BDH_CONFIG).to(device)
+    params = sum([p.numel() for p in model.parameters()])
+    print(f"Total parameters: {params}")
+
     model = torch.compile(model)
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY
