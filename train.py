@@ -57,6 +57,18 @@ LOG_FREQ: int = TRAIN_CONFIG["LOG_FREQ"]
 input_file_path = Path(__file__).parent / DATA_CONFIG.get("INPUT_FILE_PATH", "input.txt")
 
 
+def format_duration(duration: float) -> str:
+    """Format a duration for progress output."""
+    duration = max(0, int(round(duration)))
+    hours, remainder = divmod(duration, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    if hours:
+        return f"{hours}h {minutes:02}m {seconds:02}s"
+    if minutes:
+        return f"{minutes}m {seconds:02}s"
+    return f"{seconds}s"
+
+
 # Fetch the tiny Shakespeare dataset
 def fetch_data():
     print(f"Using data file: {input_file_path}")
@@ -126,9 +138,18 @@ def main():
         optimizer.zero_grad()
         if step % LOG_FREQ == 0:
             training_duration = time.perf_counter() - training_start
+            completed_steps = step + 1
+            estimated_total_duration = (
+                training_duration / completed_steps * MAX_ITERS
+            )
+            estimated_remaining_duration = max(
+                0, estimated_total_duration - training_duration
+            )
             print(
-                f"Step: {step}/{MAX_ITERS} loss {loss_acc.item() / loss_steps:.3} "
-                f"time {training_duration:.3f}s"
+                f"Step: {completed_steps}/{MAX_ITERS} "
+                f"loss {loss_acc.item() / loss_steps:.3} "
+                f"elapsed {format_duration(training_duration)} "
+                f"ETA {format_duration(estimated_remaining_duration)}"
             )
             loss_acc = 0
             loss_steps = 0
