@@ -9,6 +9,11 @@ from contextlib import nullcontext
 from datetime import datetime, timezone
 from pathlib import Path
 
+import matplotlib
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
 if __package__:
     from . import bdh
 else:
@@ -132,6 +137,30 @@ def save_model(model, timestamp_hash: str, config_hash: str) -> Path:
     return model_path
 
 
+def save_loss_graph(
+    loss_values: list[float], timestamp_hash: str, config_hash: str
+) -> Path:
+    """Save a loss-versus-iteration graph and return the image path."""
+    graph_output_dir = Path(CONFIG.get("output", {}).get("GRAPH_PATH", "analysis/"))
+    if not graph_output_dir.is_absolute():
+        graph_output_dir = project_root / graph_output_dir
+    graph_output_dir.mkdir(parents=True, exist_ok=True)
+
+    graph_path = graph_output_dir / (
+        f"bdh-loss-graph-{timestamp_hash[:8]}-{config_hash[:8]}.png"
+    )
+    iterations = range(1, len(loss_values) + 1)
+    figure, axis = plt.subplots()
+    axis.plot(iterations, loss_values)
+    axis.set_xlabel("Iteration")
+    axis.set_ylabel("Loss")
+    axis.set_title("BDH Training Loss")
+    figure.tight_layout()
+    figure.savefig(graph_path)
+    plt.close(figure)
+    return graph_path
+
+
 def main():
     fetch_data()
 
@@ -148,10 +177,12 @@ def main():
 
     loss_acc = 0
     loss_steps = 0
+    loss_values: list[float] = []
     training_start = time.perf_counter()
     for step in range(MAX_ITERS):
         with ctx:
             logits, loss = model(x, y)
+        loss_values.append(loss.item())
         x, y = get_batch("train")
         loss_acc += loss
         loss_steps += 1
@@ -217,6 +248,9 @@ def main():
 
     model_path = save_model(model, timestamp_hash, config_hash)
     print(f"Model saved to: {model_path}")
+
+    graph_path = save_loss_graph(loss_values, timestamp_hash, config_hash)
+    print(f"Loss graph saved to: {graph_path}")
 
 
 if __name__ == "__main__":
