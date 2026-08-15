@@ -1,9 +1,12 @@
 # Copyright Pathway Technology, Inc.
 
+import hashlib
+import json
 import os
 import time
 import tomllib
 from contextlib import nullcontext
+from datetime import datetime, timezone
 from pathlib import Path
 
 if __package__:
@@ -114,6 +117,21 @@ def eval(model):
     model.eval()
 
 
+def save_model(model, timestamp_hash: str, config_hash: str) -> Path:
+    """Save the trained model and return the checkpoint path."""
+    model_output_dir = Path(CONFIG.get("output", {}).get("MODEL_PATH", "models/"))
+    if not model_output_dir.is_absolute():
+        model_output_dir = project_root / model_output_dir
+    model_output_dir.mkdir(parents=True, exist_ok=True)
+
+    model_path = model_output_dir / (
+        f"bdh-{timestamp_hash[:8]}-{config_hash[:8]}.pth"
+    )
+    model_to_save = getattr(model, "_orig_mod", model)
+    torch.save(model_to_save.state_dict(), model_path)
+    return model_path
+
+
 def main():
     fetch_data()
 
@@ -171,6 +189,34 @@ def main():
     print(ret_decoded)
     evaluation_duration = time.perf_counter() - evaluation_start
     print(f"Final evaluation done in {evaluation_duration:.3f}s")
+
+    timestamp = datetime.now(timezone.utc).isoformat()
+    timestamp_hash = hashlib.sha256(timestamp.encode("utf-8")).hexdigest()
+    relevant_config = {
+        "block_size": BLOCK_SIZE,
+        "batch_size": BATCH_SIZE,
+        "max_iters": MAX_ITERS,
+        "learning_rate": LEARNING_RATE,
+        "weight_decay": WEIGHT_DECAY,
+        "input_file_path": str(input_file_path),
+        "n_layer": BDH_CONFIG.n_layer,
+        "n_embd": BDH_CONFIG.n_embd,
+        "dropout": BDH_CONFIG.dropout,
+        "n_head": BDH_CONFIG.n_head,
+        "mlp_internal_dim_multiplier": BDH_CONFIG.mlp_internal_dim_multiplier,
+        "vocab_size": BDH_CONFIG.vocab_size,
+    }
+    config_payload = json.dumps(
+        relevant_config, sort_keys=True, separators=(",", ":")
+    )
+    config_hash = hashlib.sha256(config_payload.encode("utf-8")).hexdigest()
+
+    print(f"Timestamp: {timestamp}")
+    print(f"Timestamp hash: {timestamp_hash}")
+    print(f"Config hash: {config_hash}")
+
+    model_path = save_model(model, timestamp_hash, config_hash)
+    print(f"Model saved to: {model_path}")
 
 
 if __name__ == "__main__":

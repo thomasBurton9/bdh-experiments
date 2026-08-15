@@ -8,3 +8,7 @@ LOG_FREQ = 10
 
 [data]
 INPUT_FILE_PATH = "input.txt"
+
+[output]
+MODEL_PATH = "models/"
+GRAPH_PATH = "analysis/"

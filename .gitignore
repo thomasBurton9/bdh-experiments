@@ -3,3 +3,5 @@ __pycache__/
 IDEAS.md
 raw_data/
 config.toml
+models/
+analysis/
