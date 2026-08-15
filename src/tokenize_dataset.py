@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import time
 import tomllib
 from collections.abc import Sequence
 from pathlib import Path
@@ -78,6 +79,7 @@ def tokenize_dataset(
     if not input_file_path.is_file():
         raise FileNotFoundError(f"Input file not found: {input_file_path}")
 
+    start_time = time.perf_counter()
     output_path = output_path or output_path_for(input_file_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -89,6 +91,7 @@ def tokenize_dataset(
 
     print(f"Tokenized {input_file_path} into {len(token_ids):,} tokens")
     print(f"Tokenized data saved to {output_path}")
+    print(f"Tokenized dataset in {time.perf_counter() - start_time:.2f} seconds")
     return output_path
 
 
