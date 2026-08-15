@@ -2,6 +2,7 @@ import tomllib
 from pathlib import Path
 
 from tokenizers import Tokenizer
+from tokenizers.decoders import ByteLevel as ByteLevelDecoder
 from tokenizers.models import BPE
 from tokenizers.pre_tokenizers import ByteLevel
 from tokenizers.trainers import BpeTrainer
@@ -27,6 +28,7 @@ def main() -> None:
 
     tokenizer = Tokenizer(BPE(unk_token="<unk>"))
     tokenizer.pre_tokenizer = ByteLevel()
+    tokenizer.decoder = ByteLevelDecoder()
 
     trainer = BpeTrainer(
         vocab_size=tokenizer_config["VOCAB_SIZE"],

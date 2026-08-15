@@ -5,6 +5,7 @@ import json
 import os
 import time
 import tomllib
+from collections.abc import Sequence
 from contextlib import nullcontext
 from datetime import datetime, timezone
 from pathlib import Path
@@ -23,6 +24,7 @@ import requests
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from tokenizers import Tokenizer
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # On a Mac you can also try
@@ -52,7 +54,6 @@ print(f"Using device: {device} with dtype {dtype}")
 
 # Configuration
 project_root = Path(__file__).resolve().parent.parent
-BDH_CONFIG = bdh.BDHConfig()
 with (project_root / "config.toml").open("rb") as config_file:
     CONFIG = tomllib.load(config_file)
 
@@ -65,8 +66,51 @@ MAX_ITERS: int = TRAIN_CONFIG["MAX_ITERS"]
 LEARNING_RATE: float = TRAIN_CONFIG["LEARNING_RATE"]
 WEIGHT_DECAY: float = TRAIN_CONFIG["WEIGHT_DECAY"]
 LOG_FREQ: int = TRAIN_CONFIG["LOG_FREQ"]
+TOKENIZER_ENABLED: bool = TRAIN_CONFIG.get("tokenizer", False)
 
-input_file_path = project_root / DATA_CONFIG.get("INPUT_FILE_PATH", "input.txt")
+
+def configured_path(path: str) -> Path:
+    """Resolve a configured path relative to the project root."""
+    configured = Path(path)
+    return configured if configured.is_absolute() else project_root / configured
+
+input_file_path = configured_path(DATA_CONFIG.get("INPUT_FILE_PATH", "input.txt"))
+tokenizer_path = configured_path(
+    TRAIN_CONFIG.get(
+        "tokenizer_path",
+        CONFIG.get("tokenizer", {}).get("OUTPUT_PATH", "tokenizers/tokenizer.json"),
+    )
+)
+
+tokenizer = Tokenizer.from_file(str(tokenizer_path)) if TOKENIZER_ENABLED else None
+BDH_CONFIG = bdh.BDHConfig()
+if tokenizer is not None:
+    BDH_CONFIG.vocab_size = tokenizer.get_vocab_size()
+
+
+def tokenized_data_path(path: Path) -> Path:
+    """Return the generated token-ID file path for an input text file."""
+    input_stem = path.stem
+    return path.parent / input_stem / f"{input_stem}_tokenized"
+
+
+def encode(text: str) -> list[int]:
+    """Encode evaluation text using the training representation."""
+    if tokenizer is not None:
+        return tokenizer.encode(text).ids
+    return list(text.encode("utf-8"))
+
+
+def decode(token_ids: Sequence[int] | torch.Tensor) -> str:
+    """Decode generated token IDs using the training representation."""
+    if isinstance(token_ids, torch.Tensor):
+        token_ids = token_ids.detach().to("cpu").flatten().tolist()
+    else:
+        token_ids = list(token_ids)
+
+    if tokenizer is not None:
+        return tokenizer.decode(token_ids, skip_special_tokens=True)
+    return bytes(token_ids).decode("utf-8", errors="backslashreplace")
 
 
 def format_duration(duration: float) -> str:
@@ -91,8 +135,21 @@ def fetch_data():
 
 
 def get_batch(split):
-    # treat the file as bytes
-    data = np.memmap(input_file_path, dtype=np.uint8, mode="r")
+    data_path = (
+        tokenized_data_path(input_file_path)
+        if tokenizer is not None
+        else input_file_path
+    )
+    if not data_path.is_file():
+        if tokenizer is not None:
+            raise FileNotFoundError(
+                f"Tokenized dataset not found: {data_path}. "
+                "Run `uv run python main.py --tokenize-dataset` first."
+            )
+        raise FileNotFoundError(f"Input dataset not found: {data_path}")
+
+    data_dtype = np.uint32 if tokenizer is not None else np.uint8
+    data = np.memmap(data_path, dtype=data_dtype, mode="r")
     if split == "train":
         data = data[: int(0.9 * len(data))]
     else:
@@ -211,12 +268,10 @@ def main():
     evaluation_start = time.perf_counter()
     model.eval()
     prompt = torch.tensor(
-        bytearray("To be or ", "utf-8"), dtype=torch.long, device=device
+        encode("To be or "), dtype=torch.long, device=device
     ).unsqueeze(0)
     ret = model.generate(prompt, max_new_tokens=100, top_k=3)
-    ret_decoded = bytes(ret.to(torch.uint8).to("cpu").squeeze(0)).decode(
-        errors="backslashreplace"
-    )
+    ret_decoded = decode(ret)
     print(ret_decoded)
     evaluation_duration = time.perf_counter() - evaluation_start
     print(f"Final evaluation done in {evaluation_duration:.3f}s")
@@ -230,6 +285,11 @@ def main():
         "learning_rate": LEARNING_RATE,
         "weight_decay": WEIGHT_DECAY,
         "input_file_path": str(input_file_path),
+        "tokenized_data_path": str(tokenized_data_path(input_file_path))
+        if tokenizer is not None
+        else None,
+        "tokenizer": TOKENIZER_ENABLED,
+        "tokenizer_path": str(tokenizer_path) if tokenizer is not None else None,
         "n_layer": BDH_CONFIG.n_layer,
         "n_embd": BDH_CONFIG.n_embd,
         "dropout": BDH_CONFIG.dropout,

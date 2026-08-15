@@ -5,6 +5,8 @@ MAX_ITERS = 3000
 LEARNING_RATE = 1e-3
 WEIGHT_DECAY = 0.1
 LOG_FREQ = 10
+tokenizer = false
+tokenizer_path = "tokenizers/tokenizer.json"
 
 [data]
 INPUT_FILE_PATH = "input.txt"

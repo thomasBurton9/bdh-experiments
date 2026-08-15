@@ -25,6 +25,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="train a tokenizer using the [tokenizer] configuration",
     )
+    actions.add_argument(
+        "--tokenize-dataset",
+        action="store_true",
+        help="tokenize the configured dataset using the configured tokenizer",
+    )
     parser.add_argument(
         "--target-characters",
         help="Wikipedia output size, such as 1.5m or 10m",
@@ -39,7 +44,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> None:
     args = build_parser().parse_args()
 
-    if args.train or args.train_tokenizer:
+    if args.train or args.train_tokenizer or args.tokenize_dataset:
         if args.target_characters or args.output:
             raise SystemExit("--target-characters and --output require --download-wikipedia")
 
@@ -47,10 +52,14 @@ def main() -> None:
             from src.train import main as train_main
 
             train_main()
-        else:
+        elif args.train_tokenizer:
             from src.train_tokenizer import main as train_tokenizer_main
 
             train_tokenizer_main()
+        else:
+            from src.tokenize_dataset import main as tokenize_dataset_main
+
+            tokenize_dataset_main()
         return
 
     from src.data import wikipedia_dataset
