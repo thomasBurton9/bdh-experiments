@@ -59,7 +59,8 @@ def main() -> None:
         else:
             from src.tokenize_dataset import main as tokenize_dataset_main
 
-            tokenize_dataset_main()
+            # The wrapper flag has already been consumed by this parser.
+            tokenize_dataset_main([])
         return
 
     from src.data import wikipedia_dataset

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import tomllib
+from collections.abc import Sequence
 from pathlib import Path
 
 import numpy as np
@@ -89,8 +90,8 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main() -> None:
-    args = build_parser().parse_args()
+def main(argv: Sequence[str] | None = None) -> None:
+    args = build_parser().parse_args(argv)
     tokenize_dataset(args.tokenizer_path, args.input_file_path, args.output_path)
 
 
