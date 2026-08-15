@@ -77,10 +77,13 @@ Read more: [Post-transformers: Sudoku Bench](https://pathway.com/research/beyond
 
 ```bash
 # install dependencies
-pip install -r requirements.txt
+uv sync
 
 # train BDH on a toy dataset
-python train.py
+uv run main.py --train
+
+# download a 10-million-character Wikipedia dataset
+uv run main.py --download-wikipedia --target-characters 10m
 ```
 
 <!--For visualization and interpretability analysis, explore the example notebooks in `notebooks/`.-->

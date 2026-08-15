@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import re
-import sys
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Iterable, Mapping
@@ -119,8 +118,8 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main() -> None:
-    args = build_parser().parse_args()
+def main(argv: list[str] | None = None) -> None:
+    args = build_parser().parse_args(argv)
     output_path = args.output or default_output_path(args.target_characters)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -146,7 +145,6 @@ def main() -> None:
     print(f"Created: {output_path}")
     print(f"Articles: {article_count:,}")
     print(f"Characters: {characters_written:,}")
-    sys.exit(0)
 
 
 if __name__ == "__main__":

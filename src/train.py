@@ -6,7 +6,10 @@ import tomllib
 from contextlib import nullcontext
 from pathlib import Path
 
-import bdh
+if __package__:
+    from . import bdh
+else:
+    import bdh
 import numpy as np
 import requests
 import torch
@@ -40,8 +43,9 @@ print(f"Using device: {device} with dtype {dtype}")
 
 
 # Configuration
+project_root = Path(__file__).resolve().parent.parent
 BDH_CONFIG = bdh.BDHConfig()
-with (Path(__file__).parent / "config.toml").open("rb") as config_file:
+with (project_root / "config.toml").open("rb") as config_file:
     CONFIG = tomllib.load(config_file)
 
 TRAIN_CONFIG = CONFIG["train"]
@@ -54,7 +58,7 @@ LEARNING_RATE: float = TRAIN_CONFIG["LEARNING_RATE"]
 WEIGHT_DECAY: float = TRAIN_CONFIG["WEIGHT_DECAY"]
 LOG_FREQ: int = TRAIN_CONFIG["LOG_FREQ"]
 
-input_file_path = Path(__file__).parent / DATA_CONFIG.get("INPUT_FILE_PATH", "input.txt")
+input_file_path = project_root / DATA_CONFIG.get("INPUT_FILE_PATH", "input.txt")
 
 
 def format_duration(duration: float) -> str:
@@ -97,8 +101,9 @@ def get_batch(split):
     )
     if torch.cuda.is_available():
         # pin arrays x,y, which allows us to move them to GPU asynchronously (non_blocking=True)
-        x, y = x.pin_memory().to(device, non_blocking=True), y.pin_memory().to(
-            device, non_blocking=True
+        x, y = (
+            x.pin_memory().to(device, non_blocking=True),
+            y.pin_memory().to(device, non_blocking=True),
         )
     else:
         x, y = x.to(device), y.to(device)
@@ -139,9 +144,7 @@ def main():
         if (step + 1) % LOG_FREQ == 0:
             training_duration = time.perf_counter() - training_start
             completed_steps = step + 1
-            estimated_total_duration = (
-                training_duration / completed_steps * MAX_ITERS
-            )
+            estimated_total_duration = training_duration / completed_steps * MAX_ITERS
             estimated_remaining_duration = max(
                 0, estimated_total_duration - training_duration
             )
