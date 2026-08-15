@@ -58,6 +58,7 @@ input_file_path = Path(__file__).parent / DATA_CONFIG.get("INPUT_FILE_PATH", "in
 
 # Fetch the tiny Shakespeare dataset
 def fetch_data():
+    print(f"Using data file: {input_file_path}")
     if not os.path.exists(input_file_path):
         data_url = "https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt"
         with open(input_file_path, "w") as f:
