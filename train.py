@@ -38,12 +38,12 @@ print(f"Using device: {device} with dtype {dtype}")
 
 # Configuration
 BDH_CONFIG = bdh.BDHConfig()
-BLOCK_SIZE = 512
-BATCH_SIZE = 32
+BLOCK_SIZE = 256
+BATCH_SIZE = 8
 MAX_ITERS = 3000
 LEARNING_RATE = 1e-3
 WEIGHT_DECAY = 0.1
-LOG_FREQ = 100
+LOG_FREQ = 10
 
 input_file_path = os.path.join(os.path.dirname(__file__), "input.txt")
 
