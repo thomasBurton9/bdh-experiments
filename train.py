@@ -1,7 +1,9 @@
 # Copyright Pathway Technology, Inc.
 
 import os
+import tomllib
 from contextlib import nullcontext
+from pathlib import Path
 
 import bdh
 import numpy as np
@@ -38,12 +40,15 @@ print(f"Using device: {device} with dtype {dtype}")
 
 # Configuration
 BDH_CONFIG = bdh.BDHConfig()
-BLOCK_SIZE = 256
-BATCH_SIZE = 8
-MAX_ITERS = 3000
-LEARNING_RATE = 1e-3
-WEIGHT_DECAY = 0.1
-LOG_FREQ = 10
+with (Path(__file__).parent / "config.toml").open("rb") as config_file:
+    TRAIN_CONFIG = tomllib.load(config_file)["train"]
+
+BLOCK_SIZE: int = TRAIN_CONFIG["BLOCK_SIZE"]
+BATCH_SIZE: int = TRAIN_CONFIG["BATCH_SIZE"]
+MAX_ITERS: int = TRAIN_CONFIG["MAX_ITERS"]
+LEARNING_RATE: float = TRAIN_CONFIG["LEARNING_RATE"]
+WEIGHT_DECAY: float = TRAIN_CONFIG["WEIGHT_DECAY"]
+LOG_FREQ: int = TRAIN_CONFIG["LOG_FREQ"]
 
 input_file_path = os.path.join(os.path.dirname(__file__), "input.txt")
 
