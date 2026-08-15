@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import argparse
+import json
 import tomllib
 from collections.abc import Sequence
 from pathlib import Path
 
 import numpy as np
+import gigatoken as gt
 from tokenizers import Tokenizer
+from tokenizers.pre_tokenizers import ByteLevel
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -43,6 +46,29 @@ def output_path_for(input_file_path: Path) -> Path:
     return input_file_path.parent / input_stem / f"{input_stem}_tokenized"
 
 
+def load_gigatokenizer(tokenizer_path: Path) -> gt.Tokenizer:
+    """Load a Hugging Face tokenizer into gigatoken's native backend.
+
+    Older byte-level BPE files can omit byte-alphabet entries that never
+    occurred in their training data. gigatoken requires the complete byte
+    alphabet, so add those entries to an in-memory copy of the tokenizer
+    configuration without changing the on-disk tokenizer.
+    """
+    hf_tokenizer = Tokenizer.from_file(str(tokenizer_path))
+    tokenizer_config = json.loads(hf_tokenizer.to_str())
+    vocab = tokenizer_config["model"]["vocab"]
+    missing_alphabet = sorted(set(ByteLevel.alphabet()) - set(vocab))
+
+    if missing_alphabet:
+        next_id = max(vocab.values()) + 1
+        for token in missing_alphabet:
+            vocab[token] = next_id
+            next_id += 1
+        hf_tokenizer = Tokenizer.from_str(json.dumps(tokenizer_config))
+
+    return gt.Tokenizer(hf_tokenizer)
+
+
 def tokenize_dataset(
     tokenizer_path: Path, input_file_path: Path, output_path: Path | None = None
 ) -> Path:
@@ -55,9 +81,10 @@ def tokenize_dataset(
     output_path = output_path or output_path_for(input_file_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    tokenizer = Tokenizer.from_file(str(tokenizer_path))
+    tokenizer = load_gigatokenizer(tokenizer_path)
     text = input_file_path.read_text(encoding="utf-8")
-    token_ids = np.asarray(tokenizer.encode(text).ids, dtype=np.uint32)
+    encoded = tokenizer.encode_batch([text])[0]
+    token_ids = np.asarray(encoded.tolist(), dtype=np.uint32)
     token_ids.tofile(output_path)
 
     print(f"Tokenized {input_file_path} into {len(token_ids):,} tokens")
@@ -68,7 +95,7 @@ def tokenize_dataset(
 def build_parser() -> argparse.ArgumentParser:
     default_tokenizer_path, default_input_file_path = default_paths()
     parser = argparse.ArgumentParser(
-        description="Tokenize a text dataset using a saved Hugging Face tokenizer."
+        description="Tokenize a text dataset using gigatoken and a saved tokenizer."
     )
     parser.add_argument(
         "--tokenizer-path",
