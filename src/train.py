@@ -7,7 +7,6 @@ import time
 import tomllib
 from collections.abc import Sequence
 from contextlib import nullcontext
-from datetime import datetime, timezone
 from pathlib import Path
 
 import matplotlib
@@ -179,23 +178,21 @@ def eval(model):
     model.eval()
 
 
-def save_model(model, timestamp_hash: str, config_hash: str) -> Path:
+def save_model(model, timestamp: int, config_hash: str) -> Path:
     """Save the trained model and return the checkpoint path."""
     model_output_dir = Path(CONFIG.get("output", {}).get("MODEL_PATH", "models/"))
     if not model_output_dir.is_absolute():
         model_output_dir = project_root / model_output_dir
     model_output_dir.mkdir(parents=True, exist_ok=True)
 
-    model_path = model_output_dir / (
-        f"bdh-{timestamp_hash[:8]}-{config_hash[:8]}.pth"
-    )
+    model_path = model_output_dir / f"bdh-{timestamp}-{config_hash[:8]}.pth"
     model_to_save = getattr(model, "_orig_mod", model)
     torch.save(model_to_save.state_dict(), model_path)
     return model_path
 
 
 def save_loss_graph(
-    loss_values: list[float], timestamp_hash: str, config_hash: str
+    loss_values: list[float], timestamp: int, config_hash: str
 ) -> Path:
     """Save a loss-versus-iteration graph and return the image path."""
     graph_output_dir = Path(CONFIG.get("output", {}).get("GRAPH_PATH", "analysis/"))
@@ -203,9 +200,7 @@ def save_loss_graph(
         graph_output_dir = project_root / graph_output_dir
     graph_output_dir.mkdir(parents=True, exist_ok=True)
 
-    graph_path = graph_output_dir / (
-        f"bdh-loss-graph-{timestamp_hash[:8]}-{config_hash[:8]}.png"
-    )
+    graph_path = graph_output_dir / f"bdh-loss-graph-{timestamp}-{config_hash[:8]}.png"
     iterations = range(1, len(loss_values) + 1)
     figure, axis = plt.subplots()
     axis.plot(iterations, loss_values)
@@ -279,8 +274,7 @@ def main():
     evaluation_duration = time.perf_counter() - evaluation_start
     print(f"Final evaluation done in {evaluation_duration:.3f}s")
 
-    timestamp = datetime.now(timezone.utc).isoformat()
-    timestamp_hash = hashlib.sha256(timestamp.encode("utf-8")).hexdigest()
+    timestamp = int(time.time())
     relevant_config = {
         "block_size": BLOCK_SIZE,
         "batch_size": BATCH_SIZE,
@@ -306,13 +300,12 @@ def main():
     config_hash = hashlib.sha256(config_payload.encode("utf-8")).hexdigest()
 
     print(f"Timestamp: {timestamp}")
-    print(f"Timestamp hash: {timestamp_hash}")
     print(f"Config hash: {config_hash}")
 
-    model_path = save_model(model, timestamp_hash, config_hash)
+    model_path = save_model(model, timestamp, config_hash)
     print(f"Model saved to: {model_path}")
 
-    graph_path = save_loss_graph(loss_values, timestamp_hash, config_hash)
+    graph_path = save_loss_graph(loss_values, timestamp, config_hash)
     print(f"Loss graph saved to: {graph_path}")
 
 
