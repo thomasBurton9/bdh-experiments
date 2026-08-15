@@ -166,7 +166,7 @@ def main():
 
     model = bdh.BDH(BDH_CONFIG).to(device)
     params = sum([p.numel() for p in model.parameters()])
-    print(f"Total parameters: {params}")
+    print(f"Total parameters: {params / 1e6:.2f} million")
 
     model = torch.compile(model)
     optimizer = torch.optim.AdamW(
