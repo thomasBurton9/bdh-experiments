@@ -236,6 +236,8 @@ def main():
     loss_steps = 0
     loss_values: list[float] = []
     training_start = time.perf_counter()
+    training_tokens = BLOCK_SIZE * BATCH_SIZE * MAX_ITERS
+    print(f"Training using {training_tokens} amount of tokens")
     for step in range(MAX_ITERS):
         with ctx:
             logits, loss = model(x, y)
@@ -263,6 +265,7 @@ def main():
             loss_acc = 0
             loss_steps = 0
     training_duration = time.perf_counter() - training_start
+    print(f"Trained model using {training_tokens} amount of tokens.")
     print(f"Training done in {training_duration:.3f}s, now generating a sample")
 
     evaluation_start = time.perf_counter()
