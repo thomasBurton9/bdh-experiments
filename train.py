@@ -1,6 +1,7 @@
 # Copyright Pathway Technology, Inc.
 
 import os
+import time
 import tomllib
 from contextlib import nullcontext
 from pathlib import Path
@@ -112,6 +113,7 @@ def main():
 
     loss_acc = 0
     loss_steps = 0
+    training_start = time.perf_counter()
     for step in range(MAX_ITERS):
         with ctx:
             logits, loss = model(x, y)
@@ -123,10 +125,17 @@ def main():
         scaler.update()
         optimizer.zero_grad()
         if step % LOG_FREQ == 0:
-            print(f"Step: {step}/{MAX_ITERS} loss {loss_acc.item() / loss_steps:.3}")
+            training_duration = time.perf_counter() - training_start
+            print(
+                f"Step: {step}/{MAX_ITERS} loss {loss_acc.item() / loss_steps:.3} "
+                f"time {training_duration:.3f}s"
+            )
             loss_acc = 0
             loss_steps = 0
-    print("Training done, now generating a sample ")
+    training_duration = time.perf_counter() - training_start
+    print(f"Training done in {training_duration:.3f}s, now generating a sample")
+
+    evaluation_start = time.perf_counter()
     model.eval()
     prompt = torch.tensor(
         bytearray("To be or ", "utf-8"), dtype=torch.long, device=device
@@ -136,6 +145,8 @@ def main():
         errors="backslashreplace"
     )
     print(ret_decoded)
+    evaluation_duration = time.perf_counter() - evaluation_start
+    print(f"Final evaluation done in {evaluation_duration:.3f}s")
 
 
 if __name__ == "__main__":
