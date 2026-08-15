@@ -136,7 +136,7 @@ def main():
         scaler.step(optimizer)
         scaler.update()
         optimizer.zero_grad()
-        if step % LOG_FREQ == 0:
+        if (step + 1) % LOG_FREQ == 0:
             training_duration = time.perf_counter() - training_start
             completed_steps = step + 1
             estimated_total_duration = (
