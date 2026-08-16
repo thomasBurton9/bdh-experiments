@@ -157,6 +157,7 @@ class BDH(nn.Module):
         max_new_tokens: int,
         temperature: float = 1.0,
         top_k: int | None = None,
+        top_p: float | None = None,
     ) -> torch.Tensor:
         for _ in range(max_new_tokens):
             idx_cond = idx
@@ -165,6 +166,26 @@ class BDH(nn.Module):
             if top_k is not None:
                 values, _ = torch.topk(logits, min(top_k, logits.size(-1)))
                 logits[logits < values[:, [-1]]] = float("-inf")
+
+            if top_p is not None:
+                sorted_logits, sorted_indices = torch.sort(
+                    logits, descending=True, dim=-1
+                )
+                sorted_probs = F.softmax(sorted_logits, dim=-1)
+                cumulative_probs = torch.cumsum(sorted_probs, dim=-1)
+
+                # Remove tokens after cumulative probability exceeds top_p,
+                # while always retaining at least the most probable token.
+                sorted_remove = cumulative_probs > top_p
+                sorted_remove[..., 1:] = sorted_remove[..., :-1].clone()
+                sorted_remove[..., 0] = False
+
+                remove_mask = torch.zeros_like(
+                    sorted_remove, dtype=torch.bool
+                ).scatter(-1, sorted_indices, sorted_remove)
+
+                logits = logits.masked_fill(remove_mask, float("-inf"))
+
             probs = F.softmax(logits, dim=-1)
             idx_next = torch.multinomial(probs, num_samples=1)
             idx = torch.cat((idx, idx_next), dim=1)

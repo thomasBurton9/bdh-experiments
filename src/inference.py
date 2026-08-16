@@ -91,6 +91,20 @@ def load_model(model_path: Path):
     return model.eval(), tokenizer
 
 
+def parse_top_k(value: str) -> int | None:
+    if value.lower() == "none":
+        return None
+    try:
+        top_k = int(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(
+            "top-k must be a positive integer or None"
+        ) from error
+    if top_k < 1:
+        raise argparse.ArgumentTypeError("top-k must be a positive integer or None")
+    return top_k
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate text with a BDH model.")
     parser.add_argument(
@@ -112,9 +126,17 @@ def main() -> None:
         "--top-k",
         "--top_k",
         dest="top_k",
-        type=int,
+        type=parse_top_k,
         default=50,
-        help="sample from the top k tokens (default: 50)",
+        help="sample from the top k tokens, or None to disable (default: 50)",
+    )
+    parser.add_argument(
+        "--top-p",
+        "--top_p",
+        dest="top_p",
+        type=float,
+        default=None,
+        help="sample from the smallest probability mass (default: disabled)",
     )
     parser.add_argument(
         "--max-new-tokens",
@@ -139,6 +161,7 @@ def main() -> None:
             prompt,
             max_new_tokens=args.max_new_tokens,
             top_k=args.top_k,
+            top_p=args.top_p,
             temperature=args.temp,
         )
 
