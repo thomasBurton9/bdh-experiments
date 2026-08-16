@@ -212,7 +212,13 @@ def eval(model):
     model.eval()
 
 
-def save_model(model, timestamp: int, config_hash: str) -> Path:
+def save_model(
+    model,
+    timestamp: int,
+    config_hash: str,
+    current_step: int,
+    loss: float,
+) -> Path:
     """Save the trained model and return the checkpoint path."""
     model_output_dir = Path(CONFIG.get("output", {}).get("MODEL_PATH", "models/"))
     if not model_output_dir.is_absolute():
@@ -221,7 +227,20 @@ def save_model(model, timestamp: int, config_hash: str) -> Path:
 
     model_path = model_output_dir / f"bdh-{timestamp}-{config_hash[:8]}.pth"
     model_to_save = getattr(model, "_orig_mod", model)
-    torch.save(model_to_save.state_dict(), model_path)
+    checkpoint = {
+        "format_version": 1,
+        "model_state_dict": model_to_save.state_dict(),
+        "config_toml": (project_root / "config.toml").read_text(encoding="utf-8"),
+        "tokenizer_json": (
+            tokenizer_path.read_text(encoding="utf-8")
+            if tokenizer is not None
+            else None
+        ),
+        "step": current_step,
+        "loss": float(loss),
+        "tokens_trained": current_step * BATCH_SIZE * BLOCK_SIZE,
+    }
+    torch.save(checkpoint, model_path)
     return model_path
 
 
@@ -276,11 +295,15 @@ def main(dry: bool = False):
     loss_acc = 0
     loss_steps = 0
     loss_values: list[float] = []
+    current_step = 0
+    current_loss = 0.0
     training_start = time.perf_counter()
     for step in range(MAX_ITERS):
         with ctx:
             logits, loss = model(x, y)
         loss_values.append(loss.item())
+        current_step = step + 1
+        current_loss = loss.item()
         x, y = get_batch("train")
         loss_acc += loss
         loss_steps += 1
@@ -346,7 +369,13 @@ def main(dry: bool = False):
     print(f"Timestamp: {timestamp}")
     print(f"Config hash: {config_hash}")
 
-    model_path = save_model(model, timestamp, config_hash)
+    model_path = save_model(
+        model,
+        timestamp,
+        config_hash,
+        current_step=current_step,
+        loss=current_loss,
+    )
     print(f"Model saved to: {model_path}")
 
     graph_path = save_loss_graph(loss_values, timestamp, config_hash)
