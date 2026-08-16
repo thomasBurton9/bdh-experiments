@@ -32,7 +32,8 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 dtype = (
     "bfloat16"
-    if torch.cuda.is_available() and torch.cuda.is_bf16_supported()
+    if torch.cuda.is_available()
+    and torch.cuda.is_bf16_supported(including_emulation=False)
     else "float16"
 )  # 'float32', 'bfloat16', or 'float16', the latter will auto implement a GradScaler
 ptdtype = {
