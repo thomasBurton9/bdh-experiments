@@ -7,6 +7,8 @@ WEIGHT_DECAY = 0.1
 LOG_FREQ = 10
 tokenizer = false
 tokenizer_path = "tokenizers/tokenizer.json"
+start_from_checkpoint = false
+checkpoint_path = ""
 
 [model]
 n_layer = 6

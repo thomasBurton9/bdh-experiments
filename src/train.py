@@ -69,12 +69,43 @@ LEARNING_RATE: float = TRAIN_CONFIG["LEARNING_RATE"]
 WEIGHT_DECAY: float = TRAIN_CONFIG["WEIGHT_DECAY"]
 LOG_FREQ: int = TRAIN_CONFIG["LOG_FREQ"]
 TOKENIZER_ENABLED: bool = TRAIN_CONFIG.get("tokenizer", False)
+START_FROM_CHECKPOINT: bool = TRAIN_CONFIG.get("start_from_checkpoint", False)
+CHECKPOINT_PATH: str = TRAIN_CONFIG.get("checkpoint_path", "")
 
 
 def configured_path(path: str) -> Path:
     """Resolve a configured path relative to the project root."""
     configured = Path(path)
     return configured if configured.is_absolute() else project_root / configured
+
+
+def load_checkpoint(model: nn.Module) -> None:
+    """Load the configured checkpoint into the model or exit with an error."""
+    if not START_FROM_CHECKPOINT:
+        return
+    if not CHECKPOINT_PATH:
+        raise SystemExit(
+            "start_from_checkpoint is enabled, but checkpoint_path is empty"
+        )
+
+    checkpoint_path = configured_path(CHECKPOINT_PATH)
+    if not checkpoint_path.is_file():
+        raise SystemExit(f"Checkpoint file not found: {checkpoint_path}")
+
+    try:
+        checkpoint = torch.load(
+            checkpoint_path,
+            map_location=device,
+            weights_only=True,
+        )
+        state_dict = checkpoint.get("model_state_dict", checkpoint)
+        model.load_state_dict(state_dict)
+    except Exception as error:
+        raise SystemExit(
+            f"Could not load checkpoint {checkpoint_path}: {error}"
+        ) from error
+
+    print(f"Loaded checkpoint: {checkpoint_path}")
 
 input_file_path = configured_path(DATA_CONFIG.get("INPUT_FILE_PATH", "input.txt"))
 tokenizer_path = configured_path(
@@ -220,6 +251,7 @@ def main(dry: bool = False):
     fetch_data()
 
     model = bdh.BDH(BDH_CONFIG).to(device)
+    load_checkpoint(model)
     params = sum([p.numel() for p in model.parameters()])
     print(f"Total parameters: {params / 1e6:.2f} million")
 
@@ -228,12 +260,18 @@ def main(dry: bool = False):
     if dry:
         return
 
+    x, y = get_batch("train")
+    if START_FROM_CHECKPOINT:
+        model.eval()
+        with torch.no_grad(), ctx:
+            _, checkpoint_loss = model(x, y)
+        print(f"Checkpoint loss before training: {checkpoint_loss.item():.3f}")
+        model.train()
+
     model = torch.compile(model)
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY
     )
-
-    x, y = get_batch("train")
 
     loss_acc = 0
     loss_steps = 0
