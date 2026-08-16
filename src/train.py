@@ -23,8 +23,8 @@ else:
 import numpy as np
 import requests
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
+from torch import nn
+
 from tokenizers import Tokenizer
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -370,7 +370,7 @@ def decode(token_ids: Sequence[int] | torch.Tensor) -> str:
 
 def format_duration(duration: float) -> str:
     """Format a duration for progress output."""
-    duration = max(0, int(round(duration)))
+    duration = max(0, round(duration))
     hours, remainder = divmod(duration, 3600)
     minutes, seconds = divmod(remainder, 60)
     if hours:
@@ -524,7 +524,7 @@ def main(dry: bool = False):
     training_start = time.perf_counter()
     for step in range(MAX_ITERS):
         with ctx:
-            logits, loss = model(x, y)
+            _logits, loss = model(x, y)
         loss_values.append(loss.item())
         current_step = step + 1
         current_loss = loss.item()

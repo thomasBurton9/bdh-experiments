@@ -4,10 +4,9 @@ from __future__ import annotations
 
 import argparse
 import re
+from collections.abc import Iterable, Mapping
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
-from typing import Iterable, Mapping
-
 
 DEFAULT_TARGET_CHARACTERS = 1_000_000
 DATASET_NAME = "wikimedia/wikipedia"

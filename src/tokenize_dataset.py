@@ -9,11 +9,11 @@ import tomllib
 from collections.abc import Sequence
 from pathlib import Path
 
-import numpy as np
 import gigatoken as gt
-from tokenizers import Tokenizer
+import numpy as np
 from tokenizers.pre_tokenizers import ByteLevel
 
+from tokenizers import Tokenizer
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_PATH = PROJECT_ROOT / "config.toml"

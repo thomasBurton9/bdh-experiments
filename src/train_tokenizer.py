@@ -1,12 +1,12 @@
 import tomllib
 from pathlib import Path
 
-from tokenizers import Tokenizer
 from tokenizers.decoders import ByteLevel as ByteLevelDecoder
 from tokenizers.models import BPE
 from tokenizers.pre_tokenizers import ByteLevel
 from tokenizers.trainers import BpeTrainer
 
+from tokenizers import Tokenizer
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 

@@ -21,3 +21,10 @@ explicit = true
 torch = [{ index = "pytorch-cu132" }]
 torchvision = [{ index = "pytorch-cu132" }]
 
+[tool.basedpyright]
+typeCheckingMode = "off"
+
+[dependency-groups]
+dev = [
+    "ruff>=0.16.3",
+]

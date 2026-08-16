@@ -7,3 +7,4 @@ models/
 analysis/
 tokenizers/
 benchmarks/
+configs/
