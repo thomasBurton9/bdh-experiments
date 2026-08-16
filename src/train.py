@@ -77,6 +77,7 @@ START_FROM_CHECKPOINT: bool = TRAIN_CONFIG.get(
 )
 CHECKPOINT_PATH: str = TRAIN_CONFIG.get("checkpoint_path", "")
 CURRENT_CONFIG_TOML = base_config_toml
+CheckpointInfo = tuple[Mapping[str, object], Path, bool]
 
 
 def configured_path(path: str) -> Path:
@@ -91,8 +92,8 @@ def has_supported_checkpoint_format(checkpoint: Mapping[str, object]) -> bool:
     return type(format_version) is int and format_version == 1
 
 
-def load_checkpoint_payload() -> tuple[Mapping[str, object], Path] | None:
-    """Load and validate the configured checkpoint payload."""
+def load_checkpoint_payload() -> CheckpointInfo | None:
+    """Load the configured checkpoint payload and identify its format."""
     if not START_FROM_CHECKPOINT:
         return None
     if not CHECKPOINT_PATH:
@@ -120,11 +121,15 @@ def load_checkpoint_payload() -> tuple[Mapping[str, object], Path] | None:
     ):
         print(
             f"Unsupported checkpoint format for {checkpoint_path}; "
-            "falling back to config.toml"
+            "using config.toml model/tokenizer settings and checkpoint weights"
         )
-        return None
+        if not isinstance(checkpoint, Mapping):
+            raise SystemExit(
+                f"Checkpoint {checkpoint_path} is not a mapping of model weights"
+            )
+        return checkpoint, checkpoint_path, False
 
-    return checkpoint, checkpoint_path
+    return checkpoint, checkpoint_path, True
 
 
 def restore_checkpoint_files(
@@ -218,13 +223,14 @@ def replace_toml_table(
     )
 
 
-def configure_training_context() -> tuple[Mapping[str, object], Path] | None:
+def configure_training_context() -> CheckpointInfo | None:
     """Apply checkpoint model artifacts while retaining base training settings."""
     global CURRENT_CONFIG_TOML, MODEL_CONFIG, BDH_CONFIG, tokenizer, tokenizer_path
 
     checkpoint_info = load_checkpoint_payload()
-    if checkpoint_info is not None:
-        checkpoint, _ = checkpoint_info
+    uses_checkpoint_config = checkpoint_info is not None and checkpoint_info[2]
+    if uses_checkpoint_config:
+        checkpoint, _, _ = checkpoint_info
         config_toml = checkpoint["config_toml"]
         assert isinstance(config_toml, str)
         restored_config_path, restored_tokenizer_path = restore_checkpoint_files(
@@ -263,7 +269,7 @@ def configure_training_context() -> tuple[Mapping[str, object], Path] | None:
         )
 
     should_load_tokenizer = tokenizer_path is not None and (
-        TOKENIZER_ENABLED or checkpoint_info is not None
+        TOKENIZER_ENABLED or uses_checkpoint_config
     )
     if TOKENIZER_ENABLED and tokenizer_path is None:
         raise SystemExit(
@@ -283,7 +289,7 @@ def configure_training_context() -> tuple[Mapping[str, object], Path] | None:
     try:
         BDH_CONFIG = bdh.BDHConfig(**MODEL_CONFIG)
     except (TypeError, ValueError) as error:
-        source = "restored checkpoint" if checkpoint_info is not None else "config.toml"
+        source = "restored checkpoint" if uses_checkpoint_config else "config.toml"
         raise SystemExit(f"Invalid model configuration in {source}: {error}") from error
 
     if tokenizer is not None:
@@ -302,18 +308,22 @@ def configure_training_context() -> tuple[Mapping[str, object], Path] | None:
 
 def load_checkpoint(
     model: nn.Module,
-    checkpoint_info: tuple[Mapping[str, object], Path] | None = None,
+    checkpoint_info: CheckpointInfo | None = None,
 ) -> None:
-    """Load the validated checkpoint weights into the model."""
+    """Load checkpoint weights into the model."""
     if not START_FROM_CHECKPOINT:
         return
     if checkpoint_info is None:
         checkpoint_info = load_checkpoint_payload()
     if checkpoint_info is None:
         return
-    checkpoint, checkpoint_path = checkpoint_info
+    checkpoint, checkpoint_path, uses_checkpoint_config = checkpoint_info
 
-    state_dict = checkpoint.get("model_state_dict")
+    state_dict = (
+        checkpoint.get("model_state_dict")
+        if uses_checkpoint_config
+        else checkpoint.get("model_state_dict", checkpoint)
+    )
     if not isinstance(state_dict, Mapping):
         raise SystemExit(
             f"Checkpoint {checkpoint_path} is missing model_state_dict"
@@ -549,7 +559,7 @@ def main(dry: bool = False):
     prompt = torch.tensor(
         encode("To be or "), dtype=torch.long, device=device
     ).unsqueeze(0)
-    ret = model.generate(prompt, max_new_tokens=100, top_k=3)
+    ret = model.generate(prompt, max_new_tokens=100, top_k=50, temperature=1.0)
     ret_decoded = decode(ret)
     print(ret_decoded)
     evaluation_duration = time.perf_counter() - evaluation_start
