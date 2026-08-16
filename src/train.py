@@ -1,5 +1,6 @@
 # Copyright Pathway Technology, Inc.
 
+import argparse
 import hashlib
 import json
 import os
@@ -214,12 +215,17 @@ def save_loss_graph(
     return graph_path
 
 
-def main():
+def main(dry: bool = False):
     fetch_data()
 
     model = bdh.BDH(BDH_CONFIG).to(device)
     params = sum([p.numel() for p in model.parameters()])
     print(f"Total parameters: {params / 1e6:.2f} million")
+
+    training_tokens = BLOCK_SIZE * BATCH_SIZE * MAX_ITERS
+    print(f"Training using {training_tokens / 1e6} million tokens")
+    if dry:
+        return
 
     model = torch.compile(model)
     optimizer = torch.optim.AdamW(
@@ -232,8 +238,6 @@ def main():
     loss_steps = 0
     loss_values: list[float] = []
     training_start = time.perf_counter()
-    training_tokens = BLOCK_SIZE * BATCH_SIZE * MAX_ITERS
-    print(f"Training using {training_tokens / 1e6} million tokens")
     for step in range(MAX_ITERS):
         with ctx:
             logits, loss = model(x, y)
@@ -311,4 +315,10 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="Train BDH.")
+    parser.add_argument(
+        "--dry",
+        action="store_true",
+        help="check BDH setup and report model size without training",
+    )
+    main(dry=parser.parse_args().dry)

@@ -38,6 +38,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--output",
         help="Wikipedia output path",
     )
+    parser.add_argument(
+        "--dry",
+        action="store_true",
+        help="check BDH setup and report model size without training (requires --train)",
+    )
     return parser
 
 
@@ -48,10 +53,13 @@ def main() -> None:
         if args.target_characters or args.output:
             raise SystemExit("--target-characters and --output require --download-wikipedia")
 
+        if args.dry and not args.train:
+            raise SystemExit("--dry requires --train")
+
         if args.train:
             from src.train import main as train_main
 
-            train_main()
+            train_main(dry=args.dry)
         elif args.train_tokenizer:
             from src.train_tokenizer import main as train_tokenizer_main
 
