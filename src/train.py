@@ -118,10 +118,11 @@ def load_checkpoint_payload() -> tuple[Mapping[str, object], Path] | None:
     if not isinstance(checkpoint, Mapping) or not has_supported_checkpoint_format(
         checkpoint
     ):
-        raise SystemExit(
-            f"Unsupported checkpoint format for {checkpoint_path}: "
-            "expected format_version = 1"
+        print(
+            f"Unsupported checkpoint format for {checkpoint_path}; "
+            "falling back to config.toml"
         )
+        return None
 
     return checkpoint, checkpoint_path
 
@@ -308,7 +309,8 @@ def load_checkpoint(
         return
     if checkpoint_info is None:
         checkpoint_info = load_checkpoint_payload()
-    assert checkpoint_info is not None
+    if checkpoint_info is None:
+        return
     checkpoint, checkpoint_path = checkpoint_info
 
     state_dict = checkpoint.get("model_state_dict")
@@ -481,7 +483,8 @@ def main(dry: bool = False):
     fetch_data()
 
     model = bdh.BDH(BDH_CONFIG).to(device)
-    load_checkpoint(model, checkpoint_info)
+    if checkpoint_info is not None:
+        load_checkpoint(model, checkpoint_info)
     params = sum([p.numel() for p in model.parameters()])
     print(f"Total parameters: {params / 1e6:.2f} million")
 
@@ -491,7 +494,7 @@ def main(dry: bool = False):
         return
 
     x, y = get_batch("train")
-    if START_FROM_CHECKPOINT:
+    if checkpoint_info is not None:
         model.eval()
         with torch.no_grad(), ctx:
             _, checkpoint_loss = model(x, y)
