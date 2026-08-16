@@ -69,6 +69,8 @@ BLOCK_SIZE: int = TRAIN_CONFIG["BLOCK_SIZE"]
 BATCH_SIZE: int = TRAIN_CONFIG["BATCH_SIZE"]
 MAX_ITERS: int = TRAIN_CONFIG["MAX_ITERS"]
 LEARNING_RATE: float = TRAIN_CONFIG["LEARNING_RATE"]
+MIN_LEARNING_RATE: float = TRAIN_CONFIG["MIN_LEARNING_RATE"]
+WARMUP_ITERS: int = TRAIN_CONFIG["WARMUP_ITERS"]
 WEIGHT_DECAY: float = TRAIN_CONFIG["WEIGHT_DECAY"]
 LOG_FREQ: int = TRAIN_CONFIG["LOG_FREQ"]
 TOKENIZER_ENABLED: bool = TRAIN_CONFIG.get("tokenizer", False)
@@ -513,8 +515,36 @@ def main(dry: bool = False):
 
     model = torch.compile(model)
     optimizer = torch.optim.AdamW(
-        model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY
+        model.parameters(),
+        lr=LEARNING_RATE,
+        weight_decay=WEIGHT_DECAY,
     )
+
+    if WARMUP_ITERS > 0:
+        warmup_scheduler = torch.optim.lr_scheduler.LinearLR(
+            optimizer,
+            start_factor=0.1,
+            end_factor=1.0,
+            total_iters=WARMUP_ITERS,
+        )
+
+        cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer,
+            T_max=MAX_ITERS - WARMUP_ITERS,
+            eta_min=MIN_LEARNING_RATE,
+        )
+
+        scheduler = torch.optim.lr_scheduler.SequentialLR(
+            optimizer,
+            schedulers=[warmup_scheduler, cosine_scheduler],
+            milestones=[WARMUP_ITERS],
+        )
+    else:
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer,
+            T_max=MAX_ITERS,
+            eta_min=MIN_LEARNING_RATE,
+        )
 
     loss_acc = 0
     loss_steps = 0
@@ -534,6 +564,7 @@ def main(dry: bool = False):
         scaler.scale(loss).backward()
         scaler.step(optimizer)
         scaler.update()
+        scheduler.step()
         optimizer.zero_grad()
         if (step + 1) % LOG_FREQ == 0:
             training_duration = time.perf_counter() - training_start
@@ -571,6 +602,8 @@ def main(dry: bool = False):
         "batch_size": BATCH_SIZE,
         "max_iters": MAX_ITERS,
         "learning_rate": LEARNING_RATE,
+        "min_learning_rate": MIN_LEARNING_RATE,
+        "warmup_iters": WARMUP_ITERS,
         "weight_decay": WEIGHT_DECAY,
         "input_file_path": str(input_file_path),
         "tokenized_data_path": str(tokenized_data_path(input_file_path))
