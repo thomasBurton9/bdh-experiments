@@ -4,9 +4,10 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import time
 import tomllib
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from contextlib import nullcontext
 from pathlib import Path
 
@@ -55,7 +56,9 @@ print(f"Using device: {device} with dtype {dtype}")
 
 # Configuration
 project_root = Path(__file__).resolve().parent.parent
-with (project_root / "config.toml").open("rb") as config_file:
+base_config_path = project_root / "config.toml"
+base_config_toml = base_config_path.read_text(encoding="utf-8")
+with base_config_path.open("rb") as config_file:
     CONFIG = tomllib.load(config_file)
 
 TRAIN_CONFIG = CONFIG["train"]
@@ -69,8 +72,11 @@ LEARNING_RATE: float = TRAIN_CONFIG["LEARNING_RATE"]
 WEIGHT_DECAY: float = TRAIN_CONFIG["WEIGHT_DECAY"]
 LOG_FREQ: int = TRAIN_CONFIG["LOG_FREQ"]
 TOKENIZER_ENABLED: bool = TRAIN_CONFIG.get("tokenizer", False)
-START_FROM_CHECKPOINT: bool = TRAIN_CONFIG.get("start_from_checkpoint", False)
+START_FROM_CHECKPOINT: bool = TRAIN_CONFIG.get(
+    "start_from_checkpoint", TRAIN_CONFIG.get("from_checkpoint", False)
+)
 CHECKPOINT_PATH: str = TRAIN_CONFIG.get("checkpoint_path", "")
+CURRENT_CONFIG_TOML = base_config_toml
 
 
 def configured_path(path: str) -> Path:
@@ -79,10 +85,16 @@ def configured_path(path: str) -> Path:
     return configured if configured.is_absolute() else project_root / configured
 
 
-def load_checkpoint(model: nn.Module) -> None:
-    """Load the configured checkpoint into the model or exit with an error."""
+def has_supported_checkpoint_format(checkpoint: Mapping[str, object]) -> bool:
+    """Return whether a checkpoint declares the supported integer format version."""
+    format_version = checkpoint.get("format_version")
+    return type(format_version) is int and format_version == 1
+
+
+def load_checkpoint_payload() -> tuple[Mapping[str, object], Path] | None:
+    """Load and validate the configured checkpoint payload."""
     if not START_FROM_CHECKPOINT:
-        return
+        return None
     if not CHECKPOINT_PATH:
         raise SystemExit(
             "start_from_checkpoint is enabled, but checkpoint_path is empty"
@@ -95,30 +107,228 @@ def load_checkpoint(model: nn.Module) -> None:
     try:
         checkpoint = torch.load(
             checkpoint_path,
-            map_location=device,
+            map_location="cpu",
             weights_only=True,
         )
-        state_dict = checkpoint.get("model_state_dict", checkpoint)
-        model.load_state_dict(state_dict)
     except Exception as error:
         raise SystemExit(
             f"Could not load checkpoint {checkpoint_path}: {error}"
         ) from error
 
+    if not isinstance(checkpoint, Mapping) or not has_supported_checkpoint_format(
+        checkpoint
+    ):
+        raise SystemExit(
+            f"Unsupported checkpoint format for {checkpoint_path}: "
+            "expected format_version = 1"
+        )
+
+    return checkpoint, checkpoint_path
+
+
+def restore_checkpoint_files(
+    checkpoint: Mapping[str, object],
+) -> tuple[Path, Path | None]:
+    """Persist checkpoint config/tokenizer artifacts under unique filenames."""
+    if not has_supported_checkpoint_format(checkpoint):
+        raise SystemExit("Unsupported checkpoint format: expected format_version = 1")
+
+    config_toml = checkpoint.get("config_toml")
+    tokenizer_json = checkpoint.get("tokenizer_json")
+    if not isinstance(config_toml, str):
+        raise SystemExit("Checkpoint format 1 is missing a string config_toml")
+    if tokenizer_json is not None and not isinstance(tokenizer_json, str):
+        raise SystemExit(
+            "Checkpoint format 1 contains a tokenizer_json value that is not a string"
+        )
+
+    artifact_hash = hashlib.sha256(
+        config_toml.encode("utf-8")
+        + b"\0"
+        + (tokenizer_json or "").encode("utf-8")
+    ).hexdigest()[:8]
+
+    config_output_dir = project_root / "configs" / "restored"
+    config_output_dir.mkdir(parents=True, exist_ok=True)
+    restored_config_path = config_output_dir / f"restored_config-{artifact_hash}.toml"
+    restored_config_path.write_text(config_toml, encoding="utf-8")
+
+    restored_tokenizer_path = None
+    if tokenizer_json is not None:
+        tokenizer_output_dir = project_root / "tokenizers" / "restored"
+        tokenizer_output_dir.mkdir(parents=True, exist_ok=True)
+        restored_tokenizer_path = (
+            tokenizer_output_dir / f"restored_tokenizer-{artifact_hash}.json"
+        )
+        restored_tokenizer_path.write_text(tokenizer_json, encoding="utf-8")
+
+    return restored_config_path, restored_tokenizer_path
+
+
+def replace_toml_table(
+    base_toml: str,
+    replacement_toml: str,
+    table_name: str,
+) -> str:
+    """Replace one top-level TOML table while preserving the other tables."""
+    table_header = f"[{table_name}]"
+
+    def table_bounds(toml_text: str) -> tuple[list[str], int, int]:
+        lines = toml_text.splitlines(keepends=True)
+        start = next(
+            (index for index, line in enumerate(lines) if line.strip() == table_header),
+            None,
+        )
+        if start is None:
+            raise ValueError(f"Could not find TOML table {table_header}")
+
+        end = next(
+            (
+                index
+                for index in range(start + 1, len(lines))
+                if re.match(r"^\s*\[[^\[].*\]\s*$", lines[index])
+            ),
+            len(lines),
+        )
+        return lines, start, end
+
+    base_lines, base_start, base_end = table_bounds(base_toml)
+    replacement_lines, _, _ = table_bounds(replacement_toml)
+    replacement_start = next(
+        index
+        for index, line in enumerate(replacement_lines)
+        if line.strip() == table_header
+    )
+    replacement_end = next(
+        (
+            index
+            for index in range(replacement_start + 1, len(replacement_lines))
+            if re.match(r"^\s*\[[^\[].*\]\s*$", replacement_lines[index])
+        ),
+        len(replacement_lines),
+    )
+    replacement_section = replacement_lines[replacement_start:replacement_end]
+    if replacement_section and not replacement_section[-1].endswith(("\n", "\r")):
+        replacement_section.append("\n")
+    return "".join(
+        base_lines[:base_start]
+        + replacement_section
+        + base_lines[base_end:]
+    )
+
+
+def configure_training_context() -> tuple[Mapping[str, object], Path] | None:
+    """Apply checkpoint model artifacts while retaining base training settings."""
+    global CURRENT_CONFIG_TOML, MODEL_CONFIG, BDH_CONFIG, tokenizer, tokenizer_path
+
+    checkpoint_info = load_checkpoint_payload()
+    if checkpoint_info is not None:
+        checkpoint, _ = checkpoint_info
+        config_toml = checkpoint["config_toml"]
+        assert isinstance(config_toml, str)
+        restored_config_path, restored_tokenizer_path = restore_checkpoint_files(
+            checkpoint
+        )
+        try:
+            restored_config = tomllib.loads(config_toml)
+        except tomllib.TOMLDecodeError as error:
+            raise SystemExit(
+                f"Could not parse restored checkpoint config {restored_config_path}: {error}"
+            ) from error
+
+        model_config = restored_config.get("model")
+        if not isinstance(model_config, dict):
+            raise SystemExit(
+                f"Restored checkpoint config {restored_config_path} has no [model] table"
+            )
+
+        MODEL_CONFIG = model_config
+        CURRENT_CONFIG_TOML = replace_toml_table(
+            base_config_toml,
+            config_toml,
+            "model",
+        )
+        tokenizer_path = restored_tokenizer_path
+    else:
+        MODEL_CONFIG = CONFIG.get("model", {})
+        CURRENT_CONFIG_TOML = base_config_toml
+        tokenizer_path = configured_path(
+            TRAIN_CONFIG.get(
+                "tokenizer_path",
+                CONFIG.get("tokenizer", {}).get(
+                    "OUTPUT_PATH", "tokenizers/tokenizer.json"
+                ),
+            )
+        )
+
+    should_load_tokenizer = tokenizer_path is not None and (
+        TOKENIZER_ENABLED or checkpoint_info is not None
+    )
+    if TOKENIZER_ENABLED and tokenizer_path is None:
+        raise SystemExit(
+            "Tokenizer training is enabled, but the checkpoint has no tokenizer_json"
+        )
+
+    if should_load_tokenizer:
+        try:
+            tokenizer = Tokenizer.from_file(str(tokenizer_path))
+        except Exception as error:
+            raise SystemExit(
+                f"Could not load tokenizer {tokenizer_path}: {error}"
+            ) from error
+    else:
+        tokenizer = None
+
+    try:
+        BDH_CONFIG = bdh.BDHConfig(**MODEL_CONFIG)
+    except (TypeError, ValueError) as error:
+        source = "restored checkpoint" if checkpoint_info is not None else "config.toml"
+        raise SystemExit(f"Invalid model configuration in {source}: {error}") from error
+
+    if tokenizer is not None:
+        tokenizer_vocab_size = tokenizer.get_vocab_size()
+        if checkpoint_info is not None:
+            if BDH_CONFIG.vocab_size != tokenizer_vocab_size:
+                raise SystemExit(
+                    "Restored model vocab_size does not match the restored tokenizer: "
+                    f"{BDH_CONFIG.vocab_size} != {tokenizer_vocab_size}"
+                )
+        else:
+            BDH_CONFIG.vocab_size = tokenizer_vocab_size
+
+    return checkpoint_info
+
+
+def load_checkpoint(
+    model: nn.Module,
+    checkpoint_info: tuple[Mapping[str, object], Path] | None = None,
+) -> None:
+    """Load the validated checkpoint weights into the model."""
+    if not START_FROM_CHECKPOINT:
+        return
+    if checkpoint_info is None:
+        checkpoint_info = load_checkpoint_payload()
+    assert checkpoint_info is not None
+    checkpoint, checkpoint_path = checkpoint_info
+
+    state_dict = checkpoint.get("model_state_dict")
+    if not isinstance(state_dict, Mapping):
+        raise SystemExit(
+            f"Checkpoint {checkpoint_path} is missing model_state_dict"
+        )
+    try:
+        model.load_state_dict(state_dict)
+    except Exception as error:
+        raise SystemExit(
+            f"Could not load checkpoint weights {checkpoint_path}: {error}"
+        ) from error
+
     print(f"Loaded checkpoint: {checkpoint_path}")
 
 input_file_path = configured_path(DATA_CONFIG.get("INPUT_FILE_PATH", "input.txt"))
-tokenizer_path = configured_path(
-    TRAIN_CONFIG.get(
-        "tokenizer_path",
-        CONFIG.get("tokenizer", {}).get("OUTPUT_PATH", "tokenizers/tokenizer.json"),
-    )
-)
-
-tokenizer = Tokenizer.from_file(str(tokenizer_path)) if TOKENIZER_ENABLED else None
+tokenizer_path: Path | None = None
+tokenizer: Tokenizer | None = None
 BDH_CONFIG = bdh.BDHConfig(**MODEL_CONFIG)
-if tokenizer is not None:
-    BDH_CONFIG.vocab_size = tokenizer.get_vocab_size()
 
 
 def tokenized_data_path(path: Path) -> Path:
@@ -170,18 +380,18 @@ def fetch_data():
 def get_batch(split):
     data_path = (
         tokenized_data_path(input_file_path)
-        if tokenizer is not None
+        if TOKENIZER_ENABLED
         else input_file_path
     )
     if not data_path.is_file():
-        if tokenizer is not None:
+        if TOKENIZER_ENABLED:
             raise FileNotFoundError(
                 f"Tokenized dataset not found: {data_path}. "
                 "Run `uv run python main.py --tokenize-dataset` first."
             )
         raise FileNotFoundError(f"Input dataset not found: {data_path}")
 
-    data_dtype = np.uint32 if tokenizer is not None else np.uint8
+    data_dtype = np.uint32 if TOKENIZER_ENABLED else np.uint8
     data = np.memmap(data_path, dtype=data_dtype, mode="r")
     if split == "train":
         data = data[: int(0.9 * len(data))]
@@ -230,7 +440,7 @@ def save_model(
     checkpoint = {
         "format_version": 1,
         "model_state_dict": model_to_save.state_dict(),
-        "config_toml": (project_root / "config.toml").read_text(encoding="utf-8"),
+        "config_toml": CURRENT_CONFIG_TOML,
         "tokenizer_json": (
             tokenizer_path.read_text(encoding="utf-8")
             if tokenizer is not None
@@ -267,10 +477,11 @@ def save_loss_graph(
 
 
 def main(dry: bool = False):
+    checkpoint_info = configure_training_context()
     fetch_data()
 
     model = bdh.BDH(BDH_CONFIG).to(device)
-    load_checkpoint(model)
+    load_checkpoint(model, checkpoint_info)
     params = sum([p.numel() for p in model.parameters()])
     print(f"Total parameters: {params / 1e6:.2f} million")
 
@@ -350,7 +561,7 @@ def main(dry: bool = False):
         "weight_decay": WEIGHT_DECAY,
         "input_file_path": str(input_file_path),
         "tokenized_data_path": str(tokenized_data_path(input_file_path))
-        if tokenizer is not None
+        if TOKENIZER_ENABLED
         else None,
         "tokenizer": TOKENIZER_ENABLED,
         "tokenizer_path": str(tokenizer_path) if tokenizer is not None else None,
