@@ -8,6 +8,14 @@ LOG_FREQ = 10
 tokenizer = false
 tokenizer_path = "tokenizers/tokenizer.json"
 
+[model]
+n_layer = 6
+n_embd = 256
+dropout = 0.1
+n_head = 4
+mlp_internal_dim_multiplier = 128
+vocab_size = 256
+
 [data]
 INPUT_FILE_PATH = "input.txt"
 

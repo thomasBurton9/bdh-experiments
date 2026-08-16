@@ -58,6 +58,7 @@ with (project_root / "config.toml").open("rb") as config_file:
 
 TRAIN_CONFIG = CONFIG["train"]
 DATA_CONFIG = CONFIG.get("data", {})
+MODEL_CONFIG = CONFIG.get("model", {})
 
 BLOCK_SIZE: int = TRAIN_CONFIG["BLOCK_SIZE"]
 BATCH_SIZE: int = TRAIN_CONFIG["BATCH_SIZE"]
@@ -82,7 +83,7 @@ tokenizer_path = configured_path(
 )
 
 tokenizer = Tokenizer.from_file(str(tokenizer_path)) if TOKENIZER_ENABLED else None
-BDH_CONFIG = bdh.BDHConfig()
+BDH_CONFIG = bdh.BDHConfig(**MODEL_CONFIG)
 if tokenizer is not None:
     BDH_CONFIG.vocab_size = tokenizer.get_vocab_size()
 
