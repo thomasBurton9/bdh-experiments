@@ -30,6 +30,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="tokenize the configured dataset using the configured tokenizer",
     )
+    actions.add_argument(
+        "--full",
+        action="store_true",
+        help="train the tokenizer, tokenize the dataset, and train BDH",
+    )
     parser.add_argument(
         "--target-characters",
         help="Wikipedia output size, such as 1.5m or 10m",
@@ -41,7 +46,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--dry",
         action="store_true",
-        help="check BDH setup and report model size without training (requires --train)",
+        help="check BDH setup and report model size without training (requires --train or --full)",
     )
     return parser
 
@@ -49,14 +54,31 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> None:
     args = build_parser().parse_args()
 
-    if args.train or args.train_tokenizer or args.tokenize_dataset:
+    if args.train or args.train_tokenizer or args.tokenize_dataset or args.full:
         if args.target_characters or args.output:
-            raise SystemExit("--target-characters and --output require --download-wikipedia")
+            raise SystemExit(
+                "--target-characters and --output require --download-wikipedia"
+            )
 
-        if args.dry and not args.train:
-            raise SystemExit("--dry requires --train")
+        if args.dry and not (args.train or args.full):
+            raise SystemExit("--dry requires --train or --full")
 
-        if args.train:
+        if args.full:
+            from src.train_tokenizer import main as train_tokenizer_main
+
+            print("Stage 1/3: Training tokenizer")
+            train_tokenizer_main()
+
+            from src.tokenize_dataset import main as tokenize_dataset_main
+
+            print("Stage 2/3: Tokenizing dataset")
+            tokenize_dataset_main([])
+
+            from src.train import main as train_main
+
+            print("Stage 3/3: Training model")
+            train_main(dry=args.dry)
+        elif args.train:
             from src.train import main as train_main
 
             train_main(dry=args.dry)
