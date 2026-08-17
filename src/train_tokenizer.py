@@ -9,6 +9,15 @@ from tokenizers.trainers import BpeTrainer
 from tokenizers import Tokenizer
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config.toml"
+
+
+def resolve_config_path(config_path: str | Path | None) -> Path:
+    """Resolve a config path, defaulting to the project's config.toml."""
+    if config_path is None:
+        return DEFAULT_CONFIG_PATH
+    path = Path(config_path)
+    return path if path.is_absolute() else Path.cwd() / path
 
 
 def configured_path(path: str) -> Path:
@@ -17,8 +26,9 @@ def configured_path(path: str) -> Path:
     return configured if configured.is_absolute() else PROJECT_ROOT / configured
 
 
-def main() -> None:
-    with (PROJECT_ROOT / "config.toml").open("rb") as config_file:
+def main(config_path: str | Path | None = None) -> None:
+    config_path = resolve_config_path(config_path)
+    with config_path.open("rb") as config_file:
         config = tomllib.load(config_file)
 
     tokenizer_config = config["tokenizer"]
@@ -42,4 +52,13 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Train a tokenizer.")
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=DEFAULT_CONFIG_PATH,
+        help="configuration TOML file (default: config.toml)",
+    )
+    main(parser.parse_args().config)

@@ -56,29 +56,30 @@ print(f"Using device: {device} with dtype {dtype}")
 
 # Configuration
 project_root = Path(__file__).resolve().parent.parent
-base_config_path = project_root / "config.toml"
-base_config_toml = base_config_path.read_text(encoding="utf-8")
-with base_config_path.open("rb") as config_file:
-    CONFIG = tomllib.load(config_file)
+DEFAULT_CONFIG_PATH = project_root / "config.toml"
+base_config_path = DEFAULT_CONFIG_PATH
+base_config_toml = ""
+CONFIG: dict[str, object] = {}
+TRAIN_CONFIG: dict[str, object] = {}
+DATA_CONFIG: dict[str, object] = {}
+MODEL_CONFIG: dict[str, object] = {}
 
-TRAIN_CONFIG = CONFIG["train"]
-DATA_CONFIG = CONFIG.get("data", {})
-MODEL_CONFIG = CONFIG.get("model", {})
-
-BLOCK_SIZE: int = TRAIN_CONFIG["BLOCK_SIZE"]
-BATCH_SIZE: int = TRAIN_CONFIG["BATCH_SIZE"]
-MAX_ITERS: int = TRAIN_CONFIG["MAX_ITERS"]
-LEARNING_RATE: float = TRAIN_CONFIG["LEARNING_RATE"]
-MIN_LEARNING_RATE: float = TRAIN_CONFIG["MIN_LEARNING_RATE"]
-WARMUP_ITERS: int = TRAIN_CONFIG["WARMUP_ITERS"]
-WEIGHT_DECAY: float = TRAIN_CONFIG["WEIGHT_DECAY"]
-LOG_FREQ: int = TRAIN_CONFIG["LOG_FREQ"]
-TOKENIZER_ENABLED: bool = TRAIN_CONFIG.get("tokenizer", False)
-START_FROM_CHECKPOINT: bool = TRAIN_CONFIG.get(
-    "start_from_checkpoint", TRAIN_CONFIG.get("from_checkpoint", False)
-)
-CHECKPOINT_PATH: str = TRAIN_CONFIG.get("checkpoint_path", "")
-CURRENT_CONFIG_TOML = base_config_toml
+BLOCK_SIZE: int = 0
+BATCH_SIZE: int = 0
+MAX_ITERS: int = 0
+LEARNING_RATE: float = 0.0
+MIN_LEARNING_RATE: float = 0.0
+WARMUP_ITERS: int = 0
+WEIGHT_DECAY: float = 0.0
+LOG_FREQ: int = 0
+TOKENIZER_ENABLED = False
+START_FROM_CHECKPOINT = False
+CHECKPOINT_PATH = ""
+CURRENT_CONFIG_TOML = ""
+input_file_path = project_root / "input.txt"
+tokenizer_path: Path | None = None
+tokenizer: Tokenizer | None = None
+BDH_CONFIG: bdh.BDHConfig | None = None
 CheckpointInfo = tuple[Mapping[str, object], Path, bool]
 
 
@@ -86,6 +87,53 @@ def configured_path(path: str) -> Path:
     """Resolve a configured path relative to the project root."""
     configured = Path(path)
     return configured if configured.is_absolute() else project_root / configured
+
+
+def resolve_config_path(config_path: str | Path | None) -> Path:
+    """Resolve a config path, defaulting to the project's config.toml."""
+    if config_path is None:
+        return DEFAULT_CONFIG_PATH
+    path = Path(config_path)
+    return path if path.is_absolute() else Path.cwd() / path
+
+
+def load_config(config_path: str | Path | None = None) -> None:
+    """Load training settings from the selected TOML file."""
+    global base_config_path, base_config_toml, CONFIG
+    global TRAIN_CONFIG, DATA_CONFIG, MODEL_CONFIG
+    global BLOCK_SIZE, BATCH_SIZE, MAX_ITERS, LEARNING_RATE
+    global MIN_LEARNING_RATE, WARMUP_ITERS, WEIGHT_DECAY, LOG_FREQ
+    global TOKENIZER_ENABLED, START_FROM_CHECKPOINT, CHECKPOINT_PATH
+    global CURRENT_CONFIG_TOML, input_file_path, tokenizer_path, tokenizer
+    global BDH_CONFIG
+
+    base_config_path = resolve_config_path(config_path)
+    base_config_toml = base_config_path.read_text(encoding="utf-8")
+    with base_config_path.open("rb") as config_file:
+        CONFIG = tomllib.load(config_file)
+
+    TRAIN_CONFIG = CONFIG["train"]
+    DATA_CONFIG = CONFIG.get("data", {})
+    MODEL_CONFIG = CONFIG.get("model", {})
+
+    BLOCK_SIZE = TRAIN_CONFIG["BLOCK_SIZE"]
+    BATCH_SIZE = TRAIN_CONFIG["BATCH_SIZE"]
+    MAX_ITERS = TRAIN_CONFIG["MAX_ITERS"]
+    LEARNING_RATE = TRAIN_CONFIG["LEARNING_RATE"]
+    MIN_LEARNING_RATE = TRAIN_CONFIG["MIN_LEARNING_RATE"]
+    WARMUP_ITERS = TRAIN_CONFIG["WARMUP_ITERS"]
+    WEIGHT_DECAY = TRAIN_CONFIG["WEIGHT_DECAY"]
+    LOG_FREQ = TRAIN_CONFIG["LOG_FREQ"]
+    TOKENIZER_ENABLED = TRAIN_CONFIG.get("tokenizer", False)
+    START_FROM_CHECKPOINT = TRAIN_CONFIG.get(
+        "start_from_checkpoint", TRAIN_CONFIG.get("from_checkpoint", False)
+    )
+    CHECKPOINT_PATH = TRAIN_CONFIG.get("checkpoint_path", "")
+    CURRENT_CONFIG_TOML = base_config_toml
+    input_file_path = configured_path(DATA_CONFIG.get("INPUT_FILE_PATH", "input.txt"))
+    tokenizer_path = None
+    tokenizer = None
+    BDH_CONFIG = bdh.BDHConfig(**MODEL_CONFIG)
 
 
 def has_supported_checkpoint_format(checkpoint: Mapping[str, object]) -> bool:
@@ -123,7 +171,7 @@ def load_checkpoint_payload() -> CheckpointInfo | None:
     ):
         print(
             f"Unsupported checkpoint format for {checkpoint_path}; "
-            "using config.toml model/tokenizer settings and checkpoint weights"
+            f"using {base_config_path} model/tokenizer settings and checkpoint weights"
         )
         if not isinstance(checkpoint, Mapping):
             raise SystemExit(
@@ -291,7 +339,11 @@ def configure_training_context() -> CheckpointInfo | None:
     try:
         BDH_CONFIG = bdh.BDHConfig(**MODEL_CONFIG)
     except (TypeError, ValueError) as error:
-        source = "restored checkpoint" if uses_checkpoint_config else "config.toml"
+        source = (
+            "restored checkpoint"
+            if uses_checkpoint_config
+            else str(base_config_path)
+        )
         raise SystemExit(f"Invalid model configuration in {source}: {error}") from error
 
     if tokenizer is not None:
@@ -338,12 +390,6 @@ def load_checkpoint(
         ) from error
 
     print(f"Loaded checkpoint: {checkpoint_path}")
-
-input_file_path = configured_path(DATA_CONFIG.get("INPUT_FILE_PATH", "input.txt"))
-tokenizer_path: Path | None = None
-tokenizer: Tokenizer | None = None
-BDH_CONFIG = bdh.BDHConfig(**MODEL_CONFIG)
-
 
 def tokenized_data_path(path: Path) -> Path:
     """Return the generated token-ID file path for an input text file."""
@@ -490,7 +536,8 @@ def save_loss_graph(
     return graph_path
 
 
-def main(dry: bool = False):
+def main(dry: bool = False, config_path: str | Path | None = None):
+    load_config(config_path)
     checkpoint_info = configure_training_context()
     fetch_data()
 
@@ -648,8 +695,15 @@ def main(dry: bool = False):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train BDH.")
     parser.add_argument(
+        "--config",
+        type=Path,
+        default=DEFAULT_CONFIG_PATH,
+        help="configuration TOML file (default: config.toml)",
+    )
+    parser.add_argument(
         "--dry",
         action="store_true",
         help="check BDH setup and report model size without training",
     )
-    main(dry=parser.parse_args().dry)
+    args = parser.parse_args()
+    main(dry=args.dry, config_path=args.config)

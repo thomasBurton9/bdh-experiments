@@ -16,7 +16,15 @@ from tokenizers.pre_tokenizers import ByteLevel
 from tokenizers import Tokenizer
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-CONFIG_PATH = PROJECT_ROOT / "config.toml"
+DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config.toml"
+
+
+def resolve_config_path(config_path: str | Path | None) -> Path:
+    """Resolve a config path, defaulting to the project's config.toml."""
+    if config_path is None:
+        return DEFAULT_CONFIG_PATH
+    path = Path(config_path)
+    return path if path.is_absolute() else Path.cwd() / path
 
 
 def configured_path(path: str) -> Path:
@@ -25,9 +33,9 @@ def configured_path(path: str) -> Path:
     return configured if configured.is_absolute() else PROJECT_ROOT / configured
 
 
-def default_paths() -> tuple[Path, Path]:
+def default_paths(config_path: str | Path | None = None) -> tuple[Path, Path]:
     """Read the tokenizer and dataset paths from the project configuration."""
-    with CONFIG_PATH.open("rb") as config_file:
+    with resolve_config_path(config_path).open("rb") as config_file:
         config = tomllib.load(config_file)
 
     train_config = config.get("train", {})
@@ -95,10 +103,19 @@ def tokenize_dataset(
     return output_path
 
 
-def build_parser() -> argparse.ArgumentParser:
-    default_tokenizer_path, default_input_file_path = default_paths()
+def build_parser(
+    config_path: str | Path | None = None,
+) -> argparse.ArgumentParser:
+    config_path = resolve_config_path(config_path)
+    default_tokenizer_path, default_input_file_path = default_paths(config_path)
     parser = argparse.ArgumentParser(
         description="Tokenize a text dataset using gigatoken and a saved tokenizer."
+    )
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=config_path,
+        help="configuration TOML file (default: config.toml)",
     )
     parser.add_argument(
         "--tokenizer-path",
@@ -121,7 +138,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> None:
-    args = build_parser().parse_args(argv)
+    config_parser = argparse.ArgumentParser(add_help=False)
+    config_parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
+    config_args, _ = config_parser.parse_known_args(argv)
+    args = build_parser(config_args.config).parse_args(argv)
     tokenize_dataset(args.tokenizer_path, args.input_file_path, args.output_path)
 
 

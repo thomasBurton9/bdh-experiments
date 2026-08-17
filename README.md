@@ -82,6 +82,9 @@ uv sync
 # train BDH on a toy dataset
 uv run main.py --train
 
+# use an alternate TOML configuration for training or the full pipeline
+uv run main.py --train --config configs/small.toml
+
 # train the tokenizer from the [tokenizer] section in config.toml
 uv run main.py --train-tokenizer
 

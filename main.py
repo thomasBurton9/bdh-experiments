@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
+
+DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent / "config.toml"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -44,6 +47,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Wikipedia output path",
     )
     parser.add_argument(
+        "--config",
+        type=Path,
+        default=DEFAULT_CONFIG_PATH,
+        help="configuration TOML file (default: config.toml)",
+    )
+    parser.add_argument(
         "--dry",
         action="store_true",
         help="check BDH setup and report model size without training (requires --train or --full)",
@@ -67,30 +76,30 @@ def main() -> None:
             from src.train_tokenizer import main as train_tokenizer_main
 
             print("Stage 1/3: Training tokenizer")
-            train_tokenizer_main()
+            train_tokenizer_main(args.config)
 
             from src.tokenize_dataset import main as tokenize_dataset_main
 
             print("Stage 2/3: Tokenizing dataset")
-            tokenize_dataset_main([])
+            tokenize_dataset_main(["--config", str(args.config)])
 
             from src.train import main as train_main
 
             print("Stage 3/3: Training model")
-            train_main(dry=args.dry)
+            train_main(dry=args.dry, config_path=args.config)
         elif args.train:
             from src.train import main as train_main
 
-            train_main(dry=args.dry)
+            train_main(dry=args.dry, config_path=args.config)
         elif args.train_tokenizer:
             from src.train_tokenizer import main as train_tokenizer_main
 
-            train_tokenizer_main()
+            train_tokenizer_main(args.config)
         else:
             from src.tokenize_dataset import main as tokenize_dataset_main
 
             # The wrapper flag has already been consumed by this parser.
-            tokenize_dataset_main([])
+            tokenize_dataset_main(["--config", str(args.config)])
         return
 
     from src.data import wikipedia_dataset
