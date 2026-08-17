@@ -22,6 +22,7 @@ def generate_text(
     temperature: float,
     top_p: float,
     max_new_tokens: int,
+    block_size: int,
 ) -> str:
     prompt_ids = (
         tokenizer.encode(prompt_text).ids
@@ -33,6 +34,7 @@ def generate_text(
         generated = model.generate(
             prompt,
             max_new_tokens=max_new_tokens,
+            block_size=block_size,
             temperature=temperature,
             top_k=None,
             top_p=top_p,
@@ -56,7 +58,7 @@ def main() -> None:
         output_path = PROJECT_ROOT / output_path
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    model, tokenizer = load_model(model_path_from_args(args.model))
+    model, tokenizer, block_size = load_model(model_path_from_args(args.model))
     with output_path.open("w", encoding="utf-8") as output_file:
         print("BDH generations", file=output_file)
         print(f"Prompt: {args.prompt!r}", file=output_file)
@@ -76,6 +78,7 @@ def main() -> None:
                     temperature,
                     top_p,
                     args.max_new_tokens,
+                    block_size,
                 )
                 print(f"\n--- Generation {generation_number} ---", file=output_file)
                 print(text, file=output_file)

@@ -590,7 +590,13 @@ def main(dry: bool = False):
     prompt = torch.tensor(
         encode("To be or "), dtype=torch.long, device=device
     ).unsqueeze(0)
-    ret = model.generate(prompt, max_new_tokens=100, top_k=50, temperature=1.0)
+    ret = model.generate(
+        prompt,
+        max_new_tokens=100,
+        block_size=BLOCK_SIZE,
+        top_k=50,
+        temperature=1.0,
+    )
     ret_decoded = decode(ret)
     print(ret_decoded)
     evaluation_duration = time.perf_counter() - evaluation_start

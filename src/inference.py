@@ -5,13 +5,14 @@ import tomllib
 from collections.abc import Mapping
 from pathlib import Path
 
+import torch
+
+from tokenizers import Tokenizer
+
 if __package__:
     from . import bdh
 else:
     import bdh
-import torch
-
-from tokenizers import Tokenizer
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -65,7 +66,16 @@ def load_model(model_path: Path):
     if not isinstance(config_toml, str):
         raise SystemExit("Model format 1 is missing config_toml")
     try:
-        model_config = tomllib.loads(config_toml)["model"]
+        config = tomllib.loads(config_toml)
+        model_config = config.get("model")
+        train_config = config.get("train")
+        if not isinstance(model_config, Mapping):
+            raise TypeError("config_toml is missing a [model] table")
+        if not isinstance(train_config, Mapping):
+            raise TypeError("config_toml is missing a [train] table")
+        block_size = train_config.get("BLOCK_SIZE")
+        if type(block_size) is not int or block_size < 1:
+            raise ValueError("train.BLOCK_SIZE must be a positive integer")
         model = bdh.BDH(bdh.BDHConfig(**model_config)).to(DEVICE)
     except (KeyError, TypeError, ValueError, tomllib.TOMLDecodeError) as error:
         raise SystemExit(f"Invalid model configuration: {error}") from error
@@ -88,7 +98,7 @@ def load_model(model_path: Path):
         except Exception as error:
             raise SystemExit(f"Could not load model tokenizer: {error}") from error
 
-    return model.eval(), tokenizer
+    return model.eval(), tokenizer, block_size
 
 
 def parse_top_k(value: str) -> int | None:
@@ -149,17 +159,18 @@ def main() -> None:
     args = parser.parse_args()
 
     model_path = model_path_from_args(args.model)
-    model, tokenizer = load_model(model_path)
+    model, tokenizer, block_size = load_model(model_path)
     prompt_ids = (
         tokenizer.encode(args.prompt).ids
         if tokenizer is not None
         else list(args.prompt.encode("utf-8"))
     )
     prompt = torch.tensor(prompt_ids, dtype=torch.long, device=DEVICE).unsqueeze(0)
-    with torch.no_grad():
+    with torch.no_grad(), torch.autocast(device_type="cuda", dtype=torch.bfloat16,):
         generated = model.generate(
             prompt,
             max_new_tokens=args.max_new_tokens,
+            block_size=block_size,
             top_k=args.top_k,
             top_p=args.top_p,
             temperature=args.temp,

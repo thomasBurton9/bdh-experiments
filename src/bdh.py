@@ -143,7 +143,8 @@ class BDH(nn.Module):
             y = self.ln(yMLP)
             x = self.ln(x + y)
 
-        logits = x.view(B, T, D) @ self.lm_head
+        # logits = x.view(B, T, D) @ self.lm_head
+        logits = x[:, -1, :] @ self.lm_head
         loss = None
         if targets is not None:
             loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1))
@@ -155,12 +156,17 @@ class BDH(nn.Module):
         self,
         idx: torch.Tensor,
         max_new_tokens: int,
+        block_size: int,
         temperature: float = 1.0,
         top_k: int | None = None,
         top_p: float | None = None,
     ) -> torch.Tensor:
+        if block_size < 1:
+            raise ValueError("block_size must be a positive integer")
+
         for _ in range(max_new_tokens):
-            idx_cond = idx
+            # idx_cond = idx
+            idx_cond = idx[:, -block_size:]
             logits, _ = self(idx_cond)
             logits = logits[:, -1, :] / temperature
             if top_k is not None:
